@@ -14,7 +14,7 @@ const io = new Server(server, {
     origin: "https://pinch-client-app.vercel.app", 
     methods: ["GET", "POST"],
   },
-  transports: ['websocket'],
+  transports: ['polling', 'websocket'],
 });
 
 const PORT = 8000; 
