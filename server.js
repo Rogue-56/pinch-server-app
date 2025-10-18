@@ -23,8 +23,9 @@ io.on("connection", (socket) => {
   console.log(`⚡: New user connected: ${socket.id}`);
 
   socket.on("join-room", (roomId) => {
+    console.log(`-> User ${socket.id} attempting to join room ${roomId}`);
     socket.join(roomId);
-    console.log(`User ${socket.id} joined room ${roomId}`);
+    console.log(`User ${socket.id} successfully joined room ${roomId}`);
     
     const otherUsers = [];
     const clientsInRoom = io.sockets.adapter.rooms.get(roomId);
@@ -36,14 +37,16 @@ io.on("connection", (socket) => {
       });
     }
 
+    console.log(`<- Emitting 'existing-users' to ${socket.id} with users:`, otherUsers);
     socket.emit("existing-users", otherUsers);
 
+    console.log(`<- Emitting 'user-joined' to room ${roomId} for user ${socket.id}`);
     socket.to(roomId).emit("user-joined", socket.id);
   });
 
 
   socket.on("offer", (payload) => {
-    console.log(`Relaying offer from ${socket.id} to ${payload.target}`);
+    console.log(`-> Relaying 'offer' from ${socket.id} to ${payload.target}`);
     io.to(payload.target).emit("offer", {
       sdp: payload.sdp,
       from: socket.id,
@@ -51,7 +54,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("answer", (payload) => {
-    console.log(`Relaying answer from ${socket.id} to ${payload.target}`);
+    console.log(`-> Relaying 'answer' from ${socket.id} to ${payload.target}`);
     io.to(payload.target).emit("answer", {
       sdp: payload.sdp,
       from: socket.id,
@@ -59,6 +62,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("ice-candidate", (payload) => {
+    console.log(`-> Relaying 'ice-candidate' from ${socket.id} to ${payload.target}`);
     io.to(payload.target).emit("ice-candidate", {
       candidate: payload.candidate,
       from: socket.id,
