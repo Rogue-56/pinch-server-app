@@ -36,9 +36,8 @@ io.on("connection", (socket) => {
     }
     
     currentRoom = roomId;
-    socket.join(roomId);
     
-    // Get list of other users in the room
+    // Get list of existing users BEFORE joining
     const otherUsers = [];
     const clientsInRoom = io.sockets.adapter.rooms.get(roomId);
     if (clientsInRoom) {
@@ -48,6 +47,9 @@ io.on("connection", (socket) => {
         }
       });
     }
+    
+    // Now join the room
+    socket.join(roomId);
 
     // Tell the new user about existing users
     socket.emit("existing-users", otherUsers);
