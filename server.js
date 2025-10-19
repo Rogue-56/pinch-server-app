@@ -156,6 +156,36 @@ io.on("connection", (socket) => {
     });
   });
 
+  // Screen sharing events
+  socket.on('start-screen-share', () => {
+    socket.to(currentRoom).emit('user-started-screen-share', { id: socket.id, name: userName });
+  });
+
+  socket.on('stop-screen-share', () => {
+    socket.to(currentRoom).emit('user-stopped-screen-share', { id: socket.id });
+  });
+
+  socket.on("screen-offer", (payload) => {
+    io.to(payload.target).emit("screen-offer", {
+      sdp: payload.sdp,
+      from: socket.id,
+    });
+  });
+
+  socket.on("screen-answer", (payload) => {
+    io.to(payload.target).emit("screen-answer", {
+      sdp: payload.sdp,
+      from: socket.id,
+    });
+  });
+
+  socket.on("screen-ice-candidate", (payload) => {
+    io.to(payload.target).emit("screen-ice-candidate", {
+      candidate: payload.candidate,
+      from: socket.id,
+    });
+  });
+
   socket.on("disconnect", () => {
     console.log(`User disconnected: ${socket.id}`);
     if (currentRoom && rooms[currentRoom] && rooms[currentRoom].users[socket.id]) {
