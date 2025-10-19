@@ -2,7 +2,6 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
-const cors = require("cors");
 
 const app = express();
 
@@ -12,27 +11,24 @@ app.get("/", (req, res) => {
 
 const server = http.createServer(app);
 
-
 const io = new Server(server, {
   path: "/socket.io/",
   cors: {
-    origin: "*",
+    origin: "https://pinch-client-app.vercel.app",
     methods: ["GET", "POST"],
-    credentials: true
   },
   transports: ['polling', 'websocket'],
 });
 
-const PORT = 8000; 
+const PORT = 8000;
 
 io.on("connection", (socket) => {
-  console.log(`⚡: New user connected: ${socket.id}`);
+  console.log(`User connected: ${socket.id}`);
 
   socket.on("join-room", (roomId) => {
-    console.log(`-> User ${socket.id} attempting to join room ${roomId}`);
     socket.join(roomId);
-    console.log(`User ${socket.id} successfully joined room ${roomId}`);
     
+    // Get list of other users in the room
     const otherUsers = [];
     const clientsInRoom = io.sockets.adapter.rooms.get(roomId);
     if (clientsInRoom) {
@@ -43,16 +39,17 @@ io.on("connection", (socket) => {
       });
     }
 
-    console.log(`<- Emitting 'existing-users' to ${socket.id} with users:`, otherUsers);
+    // Tell the new user about existing users
     socket.emit("existing-users", otherUsers);
-
-    console.log(`<- Emitting 'user-joined' to room ${roomId} for user ${socket.id}`);
+    
+    // Tell existing users about the new user
     socket.to(roomId).emit("user-joined", socket.id);
+    
+    console.log(`User ${socket.id} joined room ${roomId} (${otherUsers.length} existing users)`);
   });
 
-
+  // Relay WebRTC signaling messages
   socket.on("offer", (payload) => {
-    console.log(`-> Relaying 'offer' from ${socket.id} to ${payload.target}`);
     io.to(payload.target).emit("offer", {
       sdp: payload.sdp,
       from: socket.id,
@@ -60,7 +57,6 @@ io.on("connection", (socket) => {
   });
 
   socket.on("answer", (payload) => {
-    console.log(`-> Relaying 'answer' from ${socket.id} to ${payload.target}`);
     io.to(payload.target).emit("answer", {
       sdp: payload.sdp,
       from: socket.id,
@@ -68,16 +64,14 @@ io.on("connection", (socket) => {
   });
 
   socket.on("ice-candidate", (payload) => {
-    console.log(`-> Relaying 'ice-candidate' from ${socket.id} to ${payload.target}`);
     io.to(payload.target).emit("ice-candidate", {
       candidate: payload.candidate,
       from: socket.id,
     });
   });
 
-
   socket.on("disconnect", () => {
-    console.log(`🔥: User disconnected: ${socket.id}`);
+    console.log(`User disconnected: ${socket.id}`);
     io.emit("user-disconnected", socket.id);
   });
 });
