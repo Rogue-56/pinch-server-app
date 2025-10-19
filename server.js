@@ -24,8 +24,18 @@ const PORT = 8000;
 
 io.on("connection", (socket) => {
   console.log(`User connected: ${socket.id}`);
+  
+  // Track which room this socket is in
+  let currentRoom = null;
 
   socket.on("join-room", (roomId) => {
+    // Leave previous room if any
+    if (currentRoom) {
+      socket.leave(currentRoom);
+      socket.to(currentRoom).emit("user-disconnected", socket.id);
+    }
+    
+    currentRoom = roomId;
     socket.join(roomId);
     
     // Get list of other users in the room
@@ -72,7 +82,10 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log(`User disconnected: ${socket.id}`);
-    io.emit("user-disconnected", socket.id);
+    // Only notify users in the same room
+    if (currentRoom) {
+      socket.to(currentRoom).emit("user-disconnected", socket.id);
+    }
   });
 });
 
