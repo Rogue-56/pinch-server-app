@@ -22,42 +22,91 @@ const io = new Server(server, {
 
 const PORT = 8000;
 
+// Data structure to hold room information
+const rooms = {};
+
+// Emotions and animals for name generation
+const emotions = ["Happy", "Sad", "Angry", "Excited", "Calm", "Anxious", "Silly", "Surprised"];
+const animals = ["Panda", "Cat", "Dog", "Bird", "Fish", "Lizard", "Lion", "Tiger"];
+
+// Function to generate a unique name for a user in a room
+function generateUniqueName(roomId) {
+  if (!rooms[roomId]) {
+    rooms[roomId] = {
+      users: {},
+      usedEmotions: new Set(),
+      usedAnimals: new Set(),
+    };
+  }
+
+  let name = "";
+  let emotion, animal;
+
+  // Loop until a unique name is found
+  while (true) {
+    emotion = emotions[Math.floor(Math.random() * emotions.length)];
+    animal = animals[Math.floor(Math.random() * animals.length)];
+
+    if (!rooms[roomId].usedEmotions.has(emotion) && !rooms[roomId].usedAnimals.has(animal)) {
+      rooms[roomId].usedEmotions.add(emotion);
+      rooms[roomId].usedAnimals.add(animal);
+      name = `${emotion}${animal}`;
+      break;
+    }
+  }
+
+  return { name, emotion, animal };
+}
+
 io.on("connection", (socket) => {
   console.log(`User connected: ${socket.id}`);
   
-  // Track which room this socket is in
   let currentRoom = null;
+  let userName = null;
+  let userEmotion = null;
+  let userAnimal = null;
 
   socket.on("join-room", (roomId) => {
-    // Leave previous room if any
     if (currentRoom) {
       socket.leave(currentRoom);
       socket.to(currentRoom).emit("user-disconnected", socket.id);
+      // Clean up user from the previous room
+      if (rooms[currentRoom] && rooms[currentRoom].users[socket.id]) {
+        const { emotion, animal } = rooms[currentRoom].users[socket.id];
+        rooms[currentRoom].usedEmotions.delete(emotion);
+        rooms[currentRoom].usedAnimals.delete(animal);
+        delete rooms[currentRoom].users[socket.id];
+      }
     }
     
     currentRoom = roomId;
     
-    // Get list of existing users BEFORE joining
-    const otherUsers = [];
-    const clientsInRoom = io.sockets.adapter.rooms.get(roomId);
-    if (clientsInRoom) {
-      clientsInRoom.forEach(clientId => {
-        if (clientId !== socket.id) {
-          otherUsers.push(clientId);
-        }
-      });
-    }
-    
-    // Now join the room
+    // Generate a unique name for the user
+    const { name, emotion, animal } = generateUniqueName(roomId);
+    userName = name;
+    userEmotion = emotion;
+    userAnimal = animal;
+
+    // Store user information
+    rooms[roomId].users[socket.id] = { name, emotion, animal };
+
+    // Get list of existing users with their names
+    const otherUsers = Object.entries(rooms[roomId].users)
+      .filter(([id]) => id !== socket.id)
+      .map(([id, { name }]) => ({ id, name }));
+
     socket.join(roomId);
 
-    // Tell the new user about existing users
+    // Send the assigned name to the current user
+    socket.emit("name-assigned", name);
+    
+    // Send existing users' info to the new user
     socket.emit("existing-users", otherUsers);
     
-    // Tell existing users about the new user
-    socket.to(roomId).emit("user-joined", socket.id);
+    // Announce the new user to others in the room
+    socket.to(roomId).emit("user-joined", { id: socket.id, name });
     
-    console.log(`User ${socket.id} joined room ${roomId} (${otherUsers.length} existing users)`);
+    console.log(`User ${socket.id} (${name}) joined room ${roomId}`);
   });
 
   // Relay WebRTC signaling messages
@@ -84,8 +133,13 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log(`User disconnected: ${socket.id}`);
-    // Only notify users in the same room
-    if (currentRoom) {
+    if (currentRoom && rooms[currentRoom] && rooms[currentRoom].users[socket.id]) {
+      // Free up the name for reuse
+      rooms[currentRoom].usedEmotions.delete(userEmotion);
+      rooms[currentRoom].usedAnimals.delete(userAnimal);
+      delete rooms[currentRoom].users[socket.id];
+      
+      // Notify others in the room
       socket.to(currentRoom).emit("user-disconnected", socket.id);
     }
   });
