@@ -2,6 +2,7 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const Datastore = require('nedb');
 
 const app = express();
 
@@ -21,6 +22,9 @@ const io = new Server(server, {
 });
 
 const PORT = 8000;
+
+// Database for chat
+const chatDB = new Datastore({ filename: 'chat.db', autoload: true });
 
 // Data structure to hold room information
 const rooms = {};
@@ -102,11 +106,32 @@ io.on("connection", (socket) => {
     
     // Send existing users' info to the new user
     socket.emit("existing-users", otherUsers);
+
+    // Send chat history to the new user
+    chatDB.find({ roomId }).sort({ timestamp: 1 }).exec((err, messages) => {
+      if (!err) {
+        socket.emit('chat-history', messages);
+      }
+    });
     
     // Announce the new user to others in the room
     socket.to(roomId).emit("user-joined", { id: socket.id, name });
     
     console.log(`User ${socket.id} (${name}) joined room ${roomId}`);
+  });
+
+  socket.on('send-message', (message) => {
+    const messageData = {
+      roomId: currentRoom,
+      name: userName,
+      message: message,
+      timestamp: new Date(),
+    };
+    chatDB.insert(messageData, (err, newMessage) => {
+      if (!err) {
+        io.to(currentRoom).emit('new-message', newMessage);
+      }
+    });
   });
 
   // Relay WebRTC signaling messages
