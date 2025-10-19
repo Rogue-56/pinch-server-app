@@ -6,6 +6,10 @@ const cors = require("cors");
 
 const app = express();
 
+app.get("/", (req, res) => {
+  res.send("Pinch server is running");
+});
+
 const server = http.createServer(app);
 
 
