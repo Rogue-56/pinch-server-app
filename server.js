@@ -40,6 +40,7 @@ function generateUniqueName(roomId) {
       users: {},
       usedEmotions: new Set(),
       usedAnimals: new Set(),
+      screenSharer: null,
     };
   }
 
@@ -116,6 +117,13 @@ io.on("connection", (socket) => {
     
     // Announce the new user to others in the room
     socket.to(roomId).emit("user-joined", { id: socket.id, name });
+
+    if (rooms[roomId].screenSharer) {
+      const screenSharerUser = rooms[roomId].users[rooms[roomId].screenSharer];
+      if (screenSharerUser) {
+        socket.emit("user-started-screen-share", { id: rooms[roomId].screenSharer, name: screenSharerUser.name });
+      }
+    }
     
     console.log(`User ${socket.id} (${name}) joined room ${roomId}`);
   });
@@ -158,11 +166,17 @@ io.on("connection", (socket) => {
 
   // Screen sharing events
   socket.on('start-screen-share', () => {
-    socket.to(currentRoom).emit('user-started-screen-share', { id: socket.id, name: userName });
+    if (rooms[currentRoom]) {
+      rooms[currentRoom].screenSharer = socket.id;
+      socket.to(currentRoom).emit('user-started-screen-share', { id: socket.id, name: userName });
+    }
   });
 
   socket.on('stop-screen-share', () => {
-    socket.to(currentRoom).emit('user-stopped-screen-share', { id: socket.id });
+    if (rooms[currentRoom]) {
+      rooms[currentRoom].screenSharer = null;
+      socket.to(currentRoom).emit('user-stopped-screen-share', { id: socket.id });
+    }
   });
 
   socket.on("screen-offer", (payload) => {
@@ -188,13 +202,22 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log(`User disconnected: ${socket.id}`);
-    if (currentRoom && rooms[currentRoom] && rooms[currentRoom].users[socket.id]) {
-      // Free up the name for reuse
-      rooms[currentRoom].usedEmotions.delete(userEmotion);
-      rooms[currentRoom].usedAnimals.delete(userAnimal);
-      delete rooms[currentRoom].users[socket.id];
+    if (currentRoom && rooms[currentRoom]) {
+      // If the disconnected user was the screen sharer, notify others
+      if (rooms[currentRoom].screenSharer === socket.id) {
+        rooms[currentRoom].screenSharer = null;
+        socket.to(currentRoom).emit('user-stopped-screen-share', { id: socket.id });
+      }
+
+      // Clean up user data
+      if (rooms[currentRoom].users[socket.id]) {
+        const { emotion, animal } = rooms[currentRoom].users[socket.id];
+        rooms[currentRoom].usedEmotions.delete(emotion);
+        rooms[currentRoom].usedAnimals.delete(animal);
+        delete rooms[currentRoom].users[socket.id];
+      }
       
-      // Notify others in the room
+      // Notify others in the room about the disconnection
       socket.to(currentRoom).emit("user-disconnected", socket.id);
     }
   });
