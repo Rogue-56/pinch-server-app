@@ -14,7 +14,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   path: "/socket.io/",
   cors: {
-    origin: "https://pinch-client-app.vercel.app",
+    origin: "https://pinch-client-app.onrender.com",
     methods: ["GET", "POST"],
   },
   transports: ['polling', 'websocket'],
