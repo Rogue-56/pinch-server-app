@@ -24,14 +24,14 @@ const PORT = 8000;
 
 const chatDB = new Datastore({ filename: 'chat.db', autoload: true });
 
-const rooms = {};
+const activeRooms = {};
 
 const emotions = ["Happy", "Sad", "Angry", "Excited", "Calm", "Anxious", "Silly", "Surprised"];
 const animals = ["Panda", "Cat", "Dog", "Bird", "Fish", "Lizard", "Lion", "Tiger"];
 
 function generateUniqueName(roomId) {
-  if (!rooms[roomId]) {
-    rooms[roomId] = {
+  if (!activeRooms[roomId]) {
+    activeRooms[roomId] = {
       users: {},
       usedEmotions: new Set(),
       usedAnimals: new Set(),
@@ -46,9 +46,9 @@ function generateUniqueName(roomId) {
     emotion = emotions[Math.floor(Math.random() * emotions.length)];
     animal = animals[Math.floor(Math.random() * animals.length)];
 
-    if (!rooms[roomId].usedEmotions.has(emotion) && !rooms[roomId].usedAnimals.has(animal)) {
-      rooms[roomId].usedEmotions.add(emotion);
-      rooms[roomId].usedAnimals.add(animal);
+    if (!activeRooms[roomId].usedEmotions.has(emotion) && !activeRooms[roomId].usedAnimals.has(animal)) {
+      activeRooms[roomId].usedEmotions.add(emotion);
+      activeRooms[roomId].usedAnimals.add(animal);
       name = `${emotion}${animal}`;
       break;
     }
@@ -60,33 +60,33 @@ function generateUniqueName(roomId) {
 io.on("connection", (socket) => {
   console.log(`User connected: ${socket.id}`);
   
-  let currentRoom = null;
-  let userName = null;
-  let userEmotion = null;
-  let userAnimal = null;
+  let currentRoomId = null;
+  let participantName = null;
+  let participantEmotion = null;
+  let participantAnimal = null;
 
   socket.on("join-room", (roomId) => {
-    if (currentRoom) {
-      socket.leave(currentRoom);
-      socket.to(currentRoom).emit("user-disconnected", socket.id);
-      if (rooms[currentRoom] && rooms[currentRoom].users[socket.id]) {
-        const { emotion, animal } = rooms[currentRoom].users[socket.id];
-        rooms[currentRoom].usedEmotions.delete(emotion);
-        rooms[currentRoom].usedAnimals.delete(animal);
-        delete rooms[currentRoom].users[socket.id];
+    if (currentRoomId) {
+      socket.leave(currentRoomId);
+      socket.to(currentRoomId).emit("user-disconnected", socket.id);
+      if (activeRooms[currentRoomId] && activeRooms[currentRoomId].users[socket.id]) {
+        const { emotion, animal } = activeRooms[currentRoomId].users[socket.id];
+        activeRooms[currentRoomId].usedEmotions.delete(emotion);
+        activeRooms[currentRoomId].usedAnimals.delete(animal);
+        delete activeRooms[currentRoomId].users[socket.id];
       }
     }
     
-    currentRoom = roomId;
+    currentRoomId = roomId;
     
     const { name, emotion, animal } = generateUniqueName(roomId);
-    userName = name;
-    userEmotion = emotion;
-    userAnimal = animal;
+    participantName = name;
+    participantEmotion = emotion;
+    participantAnimal = animal;
 
-    rooms[roomId].users[socket.id] = { name, emotion, animal };
+    activeRooms[roomId].users[socket.id] = { name, emotion, animal };
 
-    const otherUsers = Object.entries(rooms[roomId].users)
+    const existingParticipants = Object.entries(activeRooms[roomId].users)
       .filter(([id]) => id !== socket.id)
       .map(([id, { name }]) => ({ id, name }));
 
@@ -94,7 +94,7 @@ io.on("connection", (socket) => {
 
     socket.emit("name-assigned", name);
     
-    socket.emit("existing-users", otherUsers);
+    socket.emit("existing-users", existingParticipants);
 
     chatDB.find({ roomId }).sort({ timestamp: 1 }).exec((err, messages) => {
       if (!err) {
@@ -104,10 +104,10 @@ io.on("connection", (socket) => {
     
     socket.to(roomId).emit("user-joined", { id: socket.id, name });
 
-    if (rooms[roomId].screenSharer) {
-      const screenSharerUser = rooms[roomId].users[rooms[roomId].screenSharer];
+    if (activeRooms[roomId].screenSharer) {
+      const screenSharerUser = activeRooms[roomId].users[activeRooms[roomId].screenSharer];
       if (screenSharerUser) {
-        socket.emit("user-started-screen-share", { id: rooms[roomId].screenSharer, name: screenSharerUser.name });
+        socket.emit("user-started-screen-share", { id: activeRooms[roomId].screenSharer, name: screenSharerUser.name });
       }
     }
     
@@ -116,14 +116,14 @@ io.on("connection", (socket) => {
 
   socket.on('send-message', (message) => {
     const messageData = {
-      roomId: currentRoom,
-      name: userName,
+      roomId: currentRoomId,
+      name: participantName,
       message: message,
       timestamp: new Date(),
     };
     chatDB.insert(messageData, (err, newMessage) => {
       if (!err) {
-        io.to(currentRoom).emit('new-message', newMessage);
+        io.to(currentRoomId).emit('new-message', newMessage);
       }
     });
   });
@@ -150,16 +150,16 @@ io.on("connection", (socket) => {
   });
 
   socket.on('start-screen-share', () => {
-    if (rooms[currentRoom]) {
-      rooms[currentRoom].screenSharer = socket.id;
-      socket.to(currentRoom).emit('user-started-screen-share', { id: socket.id, name: userName });
+    if (activeRooms[currentRoomId]) {
+      activeRooms[currentRoomId].screenSharer = socket.id;
+      socket.to(currentRoomId).emit('user-started-screen-share', { id: socket.id, name: participantName });
     }
   });
 
   socket.on('stop-screen-share', () => {
-    if (rooms[currentRoom]) {
-      rooms[currentRoom].screenSharer = null;
-      socket.to(currentRoom).emit('user-stopped-screen-share', { id: socket.id });
+    if (activeRooms[currentRoomId]) {
+      activeRooms[currentRoomId].screenSharer = null;
+      socket.to(currentRoomId).emit('user-stopped-screen-share', { id: socket.id });
     }
   });
 
@@ -186,20 +186,20 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log(`User disconnected: ${socket.id}`);
-    if (currentRoom && rooms[currentRoom]) {
-      if (rooms[currentRoom].screenSharer === socket.id) {
-        rooms[currentRoom].screenSharer = null;
-        socket.to(currentRoom).emit('user-stopped-screen-share', { id: socket.id });
+    if (currentRoomId && activeRooms[currentRoomId]) {
+      if (activeRooms[currentRoomId].screenSharer === socket.id) {
+        activeRooms[currentRoomId].screenSharer = null;
+        socket.to(currentRoomId).emit('user-stopped-screen-share', { id: socket.id });
       }
 
-      if (rooms[currentRoom].users[socket.id]) {
-        const { emotion, animal } = rooms[currentRoom].users[socket.id];
-        rooms[currentRoom].usedEmotions.delete(emotion);
-        rooms[currentRoom].usedAnimals.delete(animal);
-        delete rooms[currentRoom].users[socket.id];
+      if (activeRooms[currentRoomId].users[socket.id]) {
+        const { emotion, animal } = activeRooms[currentRoomId].users[socket.id];
+        activeRooms[currentRoomId].usedEmotions.delete(emotion);
+        activeRooms[currentRoomId].usedAnimals.delete(animal);
+        delete activeRooms[currentRoomId].users[socket.id];
       }
       
-      socket.to(currentRoom).emit("user-disconnected", socket.id);
+      socket.to(currentRoomId).emit("user-disconnected", socket.id);
     }
   });
 });
